@@ -114,6 +114,12 @@ Backreference `\1` enforces matched IDs. Any state-block tooling MUST use this e
 
 ## Hand-prose currency convention {#hand-prose-currency}
 
+<!-- The standards-count figure quoted below is a deliberately-stale EXAMPLE of
+     the rot this section describes, not a claim about the repo. Linting the
+     illustration that motivates the lint is the one place the rule must not
+     apply. (Spell no digits here — a plain HTML comment is not an allowlist
+     span, so a number written in this note would itself be linted.) -->
+<!-- doc-currency-disable-next-line -->
 > Sprint 2.46.2 extension. State blocks (above) close the auto-regen layer — code-derived counts converge on every regen. The hand-prose around state blocks is the remaining drift surface: a paragraph that says "cortex-x ships 30 standards" rots the moment standard #31 lands. This section codifies the hand-prose contract and the `cortex-doc-currency` lint that enforces it.
 
 The lint detects two failure classes: (1) **numeric-claim drift** — prose asserts a count that disagrees with the nearest state block or with `cortex-doc-regen --json` snapshot; (2) **frontmatter expiry** — a doc declares `last_human_review:` or `expires:` and the reference date has passed.

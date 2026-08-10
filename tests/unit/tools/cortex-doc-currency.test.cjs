@@ -117,11 +117,99 @@ describe('cortex-doc-currency — detectClaims', () => {
   });
 
   test('T04 — handles multiple claims per line', () => {
-    const content = 'cortex-x has 8 skills, 14 agents, and 34 standards today.\n';
+    const content = 'cortex-x has 8 prompts, 14 detectors, and 34 standards today.\n';
     const claims = detectClaims(content);
     assert.equal(claims.length, 3, `expected 3 claims, got ${claims.length}`);
     const keys = claims.map((c) => c.snapshotKey).sort();
-    assert.deepStrictEqual(keys, ['agents', 'skills', 'standards']);
+    assert.deepStrictEqual(keys, ['detectors', 'prompts', 'standards']);
+  });
+
+  // --- 2026-08-10 precision pass -------------------------------------------
+  // The lint reported 24 HIGH findings on its own corpus for two months and
+  // none were actioned, because ~all of them were wrong. Each case below is
+  // one false-positive class that was live in the shipped docs.
+
+  test('T20 — bare "N tests" is not a claim (snapshot counts files, prose means cases)', () => {
+    // "3435 tests" vs snapshot tests_total=165 — an order of magnitude apart.
+    // `--apply` would have rewritten correct prose into false prose.
+    assert.deepStrictEqual(detectClaims('the suite is at 3435 tests today.\n'), []);
+  });
+
+  test('T21 — explicit "N test files" still maps to tests_total', () => {
+    const claims = detectClaims('the repo has 165 test files.\n');
+    assert.equal(claims.length, 1);
+    assert.equal(claims[0].snapshotKey, 'tests_total');
+    assert.equal(claims[0].value, 165);
+  });
+
+  test('T22 — agents / skills / profiles are concurrency + ecosystem counts, not inventory', () => {
+    for (const content of [
+      'dispatch 3–5 agents in parallel for review.\n',
+      'the runtime caps a run at 1000 agents.\n',
+      'Snyk scanned 3,984 skills in the ToxicSkills audit.\n',
+      '50 skills stay lazy in Level 0.\n',
+      'all 4 profiles allowed for this kind.\n',
+    ]) {
+      assert.deepStrictEqual(detectClaims(content), [], `should not claim: ${content.trim()}`);
+    }
+  });
+
+  test('T23 — "Rule N standards" names a tier, not a quantity', () => {
+    assert.deepStrictEqual(detectClaims('Rule 1 standards (SSOT, Modular, Scalable).\n'), []);
+    assert.deepStrictEqual(detectClaims('referenced from Rule 2/3 standards.\n'), []);
+  });
+
+  test('T24 — dotted section numbers are not quantities', () => {
+    assert.deepStrictEqual(detectClaims('### 5.1 Standards by tier\n'), []);
+    assert.deepStrictEqual(detectClaims('### 9.2 Detectors (deterministic probes)\n'), []);
+  });
+
+  test('T26 — block-scalar continuation lines cannot inject frontmatter keys', () => {
+    // R2 correctness finding (2026-08-10): parseFrontmatter was a flat
+    // `key: value` scanner, so `purpose: |` followed by indented prose turned
+    // every continuation line into a key. A doc whose description happened to
+    // contain "expires: <far future>" or "point_in_time: true" would silently
+    // switch off its own expiry enforcement — fail-open on the ingest boundary
+    // of the gate itself.
+    const doc = [
+      '---',
+      'title: probe',
+      'purpose: |',
+      '  Refresh https://example.com/case-study before publishing',
+      '  expires: 2099-01-01',
+      '  point_in_time: true',
+      'last_human_review: 2026-06-03',
+      'cadence_days: 30',
+      '---',
+      'body',
+    ].join('\n');
+
+    const { data } = parseFrontmatter(doc);
+
+    assert.equal('expires' in data, false, 'block-scalar line must not become an expires key');
+    assert.equal('point_in_time' in data, false, 'block-scalar line must not become a point_in_time key');
+    assert.equal('https' in data, false, 'a URL inside a block scalar must not become a key');
+
+    // Real keys after the scalar still parse — the dedent must resume parsing.
+    assert.equal(data.title, 'probe');
+    assert.equal(data.last_human_review, '2026-06-03');
+    assert.equal(data.cadence_days, 30);
+  });
+
+  test('T27 — folded and chomped block scalars are handled too', () => {
+    for (const marker of ['>', '|-', '|+', '>-', '>+']) {
+      const doc = ['---', `note: ${marker}`, '  expires: 2099-01-01', 'title: kept', '---', ''].join('\n');
+      const { data } = parseFrontmatter(doc);
+      assert.equal('expires' in data, false, `marker "${marker}" leaked a key`);
+      assert.equal(data.title, 'kept', `marker "${marker}" swallowed the following key`);
+    }
+  });
+
+  test('T25 — a real inventory claim still lints after all the guards', () => {
+    const claims = detectClaims('cortex-x ships 30 standards across 5 tiers.\n');
+    assert.equal(claims.length, 1);
+    assert.equal(claims[0].snapshotKey, 'standards');
+    assert.equal(claims[0].value, 30);
   });
 
   test('T15 — claim inside inline code is skipped', () => {

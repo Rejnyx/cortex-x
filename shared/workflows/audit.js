@@ -37,6 +37,22 @@ export const meta = {
 // cortex's 12-dimension catalog more directly.
 const AUDIT_DIMENSIONS = ["architecture", "security", "testing", "db"];
 
+// Lens -> agent resolution. This used to be built as `${dim}-auditor`, which
+// resolved to architecture-auditor / testing-auditor / db-auditor — three
+// agent types that have never existed in agents/. Only the security lens ever
+// got its specialist; the other three could not resolve at all.
+//
+// Explicit map, so the roster is statically checkable (a contract test walks
+// it against agents/*.md). Lenses without a dedicated agent run on
+// general-purpose with the lens carried by the prompt — weaker than a
+// specialist, but it actually runs. Swap entries here as agents land.
+const LENS_AGENT = {
+  architecture: "general-purpose",
+  security: "security-auditor",
+  testing: "general-purpose",
+  db: "general-purpose",
+};
+
 // Bounded fan-out for P4. Planner picks 3-5 topics from detected stack;
 // we cap at 5 so wall-clock + cost stay inside the R1.4 envelope.
 const MIN_RESEARCH_TOPICS = 3;
@@ -133,7 +149,13 @@ function fenceUntrustedAudit(text, source) {
   return `<untrusted source="${source}">\n${safe}\n</untrusted>`;
 }
 
-export default async function audit({ agent, parallel, pipeline }, args) {
+// NOT `export default`. The workflow runtime executes the module body and
+// never calls a default export, so this whole pipeline was unreachable — the
+// run would load, report its phases from meta, and return undefined. Kept as
+// a named function (rather than inlined) because the body contains multi-line
+// template literals that a dedent would silently reshape; the call at the
+// bottom of the file is what actually drives it.
+async function audit({ agent, parallel, pipeline }, args) {
   const targetDir = validateTargetDir(args?.targetDir);
   const depth = args?.depth ?? "standard"; // quick | standard | thorough
 
@@ -232,7 +254,7 @@ export default async function audit({ agent, parallel, pipeline }, args) {
           {
             label: `p2-${dim}`,
             phase: "Audit",
-            agentType: `${dim}-auditor`,
+            agentType: LENS_AGENT[dim] || "general-purpose",
             schema: AUDIT_LENS_SCHEMA,
           }
         )
@@ -305,7 +327,9 @@ export default async function audit({ agent, parallel, pipeline }, args) {
             // MEDIUM-17b: use stable topicIdx, not indexOf which collides on dup.
             label: `p4-research-${topicIdx}`,
             phase: "Research",
-            agentType: "researcher",
+            // Was "researcher" — no such agent ships in agents/. R1 research
+            // is exactly what general-purpose is for (WebSearch + WebFetch).
+            agentType: "general-purpose",
             schema: RESEARCH_SCHEMA,
           }
         )
@@ -404,3 +428,8 @@ export default async function audit({ agent, parallel, pipeline }, args) {
     research_topic_count: validResearch.length,
   };
 }
+
+// Drive the pipeline. `agent` / `parallel` / `pipeline` / `args` are runtime
+// globals; passing them explicitly keeps the function unit-testable in
+// isolation from the runtime.
+return audit({ agent, parallel, pipeline }, args);

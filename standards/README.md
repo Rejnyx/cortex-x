@@ -1,6 +1,11 @@
 # cortex-x Standards
 
-> **30 standards** organized in 5 tiers (+ 1 meta-standard at `RULE-1.md` + 2 supporting reference docs). **Rule 0 + Rule 1 are inviolable.** Read [`RULE-1.md`](./RULE-1.md) first — it establishes the hierarchy + active enforcement.
+<!-- 32 is the count of standards proper. The snapshot key counts every file in
+     standards/, which is 35 = 32 + RULE-1.md + the 2 supporting reference docs
+     this same sentence enumerates. Both numbers are correct; they measure
+     different things. -->
+<!-- doc-currency-disable-next-line -->
+> **32 standards** organized in 5 tiers (+ 1 meta-standard at `RULE-1.md` + 2 supporting reference docs). **Rule 0 + Rule 1 are inviolable.** Read [`RULE-1.md`](./RULE-1.md) first — it establishes the hierarchy + active enforcement.
 
 ## Tier hierarchy
 
@@ -48,7 +53,7 @@ Security can be added. Testing can be retrofitted. Observability can be layered 
 
 Tier 1 is the only tier you can't fix later.
 
-## Why 30 (across 5 tiers)
+## Why 32 (across 5 tiers)
 
 Rule 0 is the distribution gate — without it nothing else matters. Rule 1 is the inviolable architectural foundation (SSOT/Modular/Scalable) — violations compound into rewrites. Rule 1.5 is the behavioral contract for AI-assisted edits (Think Before Coding, Surgical Changes) plus the auto-orchestration + self-correction patterns that keep cortex itself learning. Rule 2 is must-have technical quality (security/testing/observability/correctness) + verification-loop + mutation-testing (Sprint 2.3) + multi-agent-supervisor (Sprint 2.2) + Steward runtime safety. Rule 3 is process polish + cross-cutting concerns (a11y, perf, error handling, git, docs, AI patterns/SDKs, voice charter, web-research, skills standard, skill-validate, visual-taste). Supporting docs (test-types-catalog, story-sizing) are reference material referenced from Rule 2/3 standards.
 

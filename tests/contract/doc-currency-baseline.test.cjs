@@ -69,6 +69,16 @@ function shouldSkip(filename) {
   return SKIP_PATTERNS.some((re) => re.test(filename));
 }
 
+// Explicit, expiring waivers for the wall-clock expiry lane below. Empty by
+// design: a doc that legitimately never goes stale carries `point_in_time:
+// true` in its own frontmatter instead. This list is only for docs that ARE
+// stale, that we have consciously decided not to refresh yet, and that must
+// come back and bite on a named date.
+//
+// { file, reason, mustFixBy } — past mustFixBy the suite fails loudly, and
+// once the finding stops reproducing the suite demands the entry be deleted.
+const EXPIRY_WAIVERS = [];
+
 function listMarkdownFiles(dir) {
   if (!fs.existsSync(dir)) return [];
   const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -189,4 +199,74 @@ test('all hand-prose currency baseline', () => {
       `Findings:\n${formatted}`
     );
   }
+});
+
+// ---------------------------------------------------------------------------
+// Wall-clock expiry lane (added 2026-08-10 after an R2 correctness finding).
+//
+// The baseline above pins NOW_ISO, which is right for numeric-claim
+// determinism — two runs on an unchanged repo must produce identical
+// findings. But the SAME frozen instant also drove the frontmatter-expiry
+// branch, so the expiry half of the Sprint 2.46.2 gate asserted a time-based
+// property that time could never violate: structurally incapable of failing,
+// forever. The test's own comment claimed it "still wants to exercise expiry
+// checks" — an intent the code did not deliver.
+//
+// This lane splits the concern. Numeric claims keep the frozen instant;
+// expiry runs against the real clock, with staleness allowed only through an
+// explicit, dated waiver. A doc that should never expire says so in its own
+// frontmatter (`point_in_time: true`) rather than hiding behind the harness.
+// ---------------------------------------------------------------------------
+test('frontmatter expiry gate can actually fail (wall clock)', () => {
+  const lint = loadLintModule();
+  const snapshot = loadSnapshot();
+  const nowIso = new Date().toISOString();
+  const today = nowIso.slice(0, 10);
+
+  const files = [
+    ...listMarkdownFiles(CORTEX_DIR),
+    ...listMarkdownFiles(STANDARDS_DIR),
+  ];
+
+  const expired = [];
+  for (const filePath of files) {
+    const content = fs.readFileSync(filePath, 'utf8');
+    const result = lint.lintFile(filePath, snapshot, nowIso, { contentOverride: content });
+    const findingsList = (result && Array.isArray(result.findings)) ? result.findings : [];
+    for (const f of findingsList) {
+      // Only the expiry dimension — numeric drift is the frozen lane's job.
+      const ruleId = f && (f.ruleId || f.type || '');
+      if (f && f.severity === 2 && /expired/.test(ruleId)) {
+        const rel = path.relative(REPO_ROOT, filePath).split(path.sep).join('/');
+        expired.push({ file: rel, ruleId, message: f.message });
+      }
+    }
+  }
+
+  const unwaived = [];
+  const stale = [];
+  for (const e of expired) {
+    const waiver = EXPIRY_WAIVERS.find((w) => w.file === e.file);
+    if (!waiver) unwaived.push(`${e.file} [${e.ruleId}] ${e.message}`);
+    else if (today > waiver.mustFixBy) {
+      stale.push(`${waiver.file} waiver expired ${waiver.mustFixBy} — TIME'S UP`);
+    }
+  }
+
+  // A waiver whose finding no longer reproduces is dead weight that hides the
+  // next real one. Same self-correcting shape as the skills QUARANTINE list.
+  const obsolete = EXPIRY_WAIVERS
+    .filter((w) => !expired.some((e) => e.file === w.file))
+    .map((w) => `${w.file} no longer expires — remove from EXPIRY_WAIVERS`);
+
+  assert.deepStrictEqual(
+    unwaived,
+    [],
+    `Docs past their declared review cadence, with no waiver:\n  ${unwaived.join('\n  ')}\n` +
+      `Fix one of three ways: refresh last_human_review, lengthen cadence_days, or ` +
+      `set point_in_time: true if the doc is a dated artifact by nature.\n` +
+      `Reference instant: ${nowIso} (wall clock, deliberately)`
+  );
+  assert.deepStrictEqual(stale, [], `Expired waivers:\n  ${stale.join('\n  ')}`);
+  assert.deepStrictEqual(obsolete, [], `Obsolete waivers:\n  ${obsolete.join('\n  ')}`);
 });

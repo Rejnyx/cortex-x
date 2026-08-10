@@ -64,6 +64,15 @@ const HOOK_SPEC = Object.freeze({
   PreCompact: [
     { hooks: [{ type: 'command', command: 'node "$HOME/.claude/shared/hooks/pre-compact.cjs"', timeout: 5 }] },
   ],
+  PostCompact: [
+    { hooks: [{ type: 'command', command: 'node "$HOME/.claude/shared/hooks/post-compact.cjs"', timeout: 5 }] },
+  ],
+  SubagentStart: [
+    { hooks: [{ type: 'command', command: 'node "$HOME/.claude/shared/hooks/subagent-start.cjs"', timeout: 3 }] },
+  ],
+  TaskCompleted: [
+    { hooks: [{ type: 'command', command: 'node "$HOME/.claude/shared/hooks/task-completed.cjs"', timeout: 3 }] },
+  ],
 });
 
 const CORTEX_PATH_RE = /[\\/]\.claude[\\/]shared[\\/]hooks[\\/]/;
