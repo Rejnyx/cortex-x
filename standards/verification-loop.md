@@ -12,7 +12,7 @@ Every implementation step must be paired with a verification step. Building prov
 
 ## The pattern (task-list-anchored)
 
-Anchor this on the session task list — the **Task tools** (`TaskCreate` / `TaskUpdate`, default since Claude Code v2.1.142) or `TodoWrite` on older builds (`CLAUDE_CODE_ENABLE_TASKS=0` re-enables it). Either way, each unit of work comes in pairs:
+Anchor this on the session task list. On Opus 4.8 / Sonnet 5 / Fable 5 and newer, Claude Code (v2.1.233+) no longer offers `TaskCreate` / `TodoWrite`: keep the list as a checklist in the reply or in PROGRESS.md, or set `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` to restore the tools. Either way, each unit of work comes in pairs:
 
 ```
 Implementation: build the password reset endpoint

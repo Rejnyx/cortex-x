@@ -54,7 +54,7 @@ These rules are non-negotiable. Each sprint must satisfy all of them before merg
 | Auto-PR creation | ✅ real auto-PRs since 2026-05-09 |
 | Tests | **2955** ✅ (0 fail, 2 pre-existing skips) |
 | CI grid | test ✅ install-smoke ✅ no-pii ✅ stryker (measure-only) ✅ |
-| Anthropic Memory Tool integration | 📋 Sprint 3.X deferred — 3 of 4 blockers active (claude-cli engine collision + value/ceremony ratio + OpenRouter beta-header) |
+| Anthropic Memory Tool integration | 📋 Sprint 3.X deferred — 3 of 4 blockers active (claude-cli engine collision + value/ceremony ratio + OpenRouter beta-header; the last one partially cleared 2026-09-25, see Sprint 3.X) |
 
 ## 3. Tier 1 — Foundation for v1.0 (next 6 weeks, Sprint 1.9 → 2.3)
 
@@ -1093,6 +1093,7 @@ Plus [Chase Agentic OS transcript](./transcripts/claude-code-agentic-os.md) Karp
 2. **Sprint 2.8 Memory Foundation gate — RESOLVED.** Sprint 2.8 v0 + 2.8.1 + 2.8.2 all shipped 2026-05-09 → 2026-05-14. ReasoningBank schema in place.
 3. **Value/ceremony ratio — STILL GATED.** The 39% perf claim is Anthropic-internal multi-turn agentic search eval; Steward's short-context actions don't benefit yet. Becomes applicable when `/cortex-goal` (Sprint 2.24, shipped 2026-05-14) sees long-running session usage OR autoresearch-v2 ships.
 4. **NEW BLOCKER (2026-05-14): OpenRouter does NOT forward `anthropic-beta: context-management-2025-06-27`.** Per `OpenRouterTeam/ai-sdk-provider#111`, arbitrary anthropic-beta headers are silently dropped. Memory Tool today requires a fourth engine path (`STEWARD_ENGINE=anthropic`) with API-key billing — a new architectural decision.
+   - **Update 2026-09-25 (partial):** the memory-tool docs now state the tool itself "doesn't require a beta header"; only the SDK helpers sit in the beta namespace ([memory-tool docs](https://platform.claude.com/docs/en/agents-and-tools/tool-use/memory-tool)). That removes the header problem for Memory Tool **alone**. Context editing (`clear_tool_uses`) — the half that carries most of the token win (blocker 3) — was not re-verified, and neither was whether OpenRouter passes the `memory_20250818` tool type through. Re-run R1 on both before un-deferring.
 
 **New security signal from fresh R1**: CVE-2026-41686 / GHSA-p7fg-763f-g4gf on Anthropic's official `BetaLocalFilesystemMemoryTool` (TS SDK) — default `0o666`/`0o777` perms world-readable/writable. When/if `memory-store-fs.cjs` lands, MUST set `{mode: 0o600}` files + `{mode: 0o700}` dirs explicitly. Pre-write acceptance criterion now.
 

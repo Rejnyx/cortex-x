@@ -20,6 +20,11 @@ All notable changes to cortex-x. Format: [Keep a Changelog](https://keepachangel
   - `lessons-exporter` always exports pinned lessons, first and regardless of score.
   - Memory-health does not count pinned project memories as stale.
 
+### Changed
+
+- **Augment block v7** — Claude Code v2.1.233+ no longer offers `TaskCreate` / `TodoWrite` on Opus 4.8, Sonnet 5, Fable 5 and newer models. The global discipline block and `standards/verification-loop.md` now say to keep the list in the reply or in PROGRESS.md, or to set `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`.
+- **GitHub Actions pinned to node24 releases** — Node 20 was removed from runners on 2026-09-23. 19 `upload-artifact` v4 pins moved to v7.0.1. The last `checkout` / `setup-node` v4 pins (capabilities-refresh, stryker) and `cache@v4` moved to node24 SHAs.
+
 ### Fixed
 
 - `memory-decay-properties.test.cjs` passed `archiveFraction`, an option that doesn't exist, so two property tests ran at the default 5% instead of the intended fraction.

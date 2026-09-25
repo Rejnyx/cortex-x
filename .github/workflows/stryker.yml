@@ -75,12 +75,12 @@ jobs:
       actions: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           fetch-depth: 0   # Stryker --since=HEAD~1 needs prior commit
 
       - name: Setup Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: '22'
           cache: 'npm'
@@ -99,7 +99,7 @@ jobs:
         id: cache-stryker
         # R2 HIGH-2: cache scope locked to main. Non-main pushes get a fresh
         # incremental cache; cannot poison main's state.
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: reports/stryker-incremental.json
           key: stryker-incremental-main-${{ hashFiles('stryker.conf.json') }}-${{ github.ref == 'refs/heads/main' && github.sha || 'feature' }}
@@ -141,7 +141,7 @@ jobs:
 
       - name: Upload Stryker HTML report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: stryker-report-${{ github.run_id }}
           path: |

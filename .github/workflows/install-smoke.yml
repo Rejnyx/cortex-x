@@ -8,7 +8,7 @@ name: install-smoke
 #     use include: + if-gated steps instead.
 #   - macos-latest is now ARM (macos-15), x86 retired Dec 2025
 #   - cron at :17 to avoid hour-boundary contention
-#   - upload-artifact@v4 on failure for debug logs
+#   - upload-artifact (v7, node24) on failure for debug logs
 
 on:
   push:
@@ -120,7 +120,7 @@ jobs:
 
       - name: Upload logs on failure
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: install-logs-${{ matrix.lane }}
           path: |
