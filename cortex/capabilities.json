@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-03T09:42:39.304Z",
+  "generated_at": "2026-09-25T09:49:00.567Z",
   "generator": "bin/cortex-capabilities.cjs",
   "note": "AUTO-GENERATED. Do not edit by hand. Re-run `npm run capabilities` to refresh.",
   "action_kinds": [
@@ -531,6 +531,11 @@
       "description": "// Filesystem destruction"
     },
     {
+      "name": "post-compact",
+      "path": "shared/hooks/post-compact.cjs",
+      "description": "cortex-x PostCompact hook — completes the compaction recovery loop."
+    },
+    {
       "name": "post-tool-use",
       "path": "shared/hooks/post-tool-use.cjs",
       "description": "---- Silent error log (observability for catch-swallowed failures) ----"
@@ -554,6 +559,16 @@
       "name": "session-start",
       "path": "shared/hooks/session-start.cjs",
       "description": "// Detect active sprint/phase (### or ####, NOT marked done)"
+    },
+    {
+      "name": "subagent-start",
+      "path": "shared/hooks/subagent-start.cjs",
+      "description": "cortex-x SubagentStart hook — discipline propagation into subagents."
+    },
+    {
+      "name": "task-completed",
+      "path": "shared/hooks/task-completed.cjs",
+      "description": "cortex-x TaskCompleted hook — verification gate."
     },
     {
       "name": "tirith-scan",
@@ -1248,15 +1263,15 @@
   ],
   "tests": {
     "counts": {
-      "unit": 2832,
-      "contract": 113,
+      "unit": 2950,
+      "contract": 114,
       "integration": 189,
       "smoke": 0
     },
-    "total": 3134
+    "total": 3253
   },
   "code_volume": {
-    "steward_runtime_loc": 35672,
-    "test_code_loc": 43512
+    "steward_runtime_loc": 36169,
+    "test_code_loc": 45368
   }
 }
