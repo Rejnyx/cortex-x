@@ -69,6 +69,9 @@ function recordLesson(slug, lesson) {
   //                   warning 60d, blocker 120d).
   //   frequency     — retrieval count, increments when a lesson is recalled
   //                   into a prompt. Used by importance-weighted scoring.
+  //   pinned        — operator-marked never-degrade fact; memory-decay never
+  //                   archives it and the exporter always keeps it. Only a
+  //                   literal boolean true pins; omitted when false.
   const enriched = {
     ts: lesson.ts || new Date().toISOString(),
     action_kind: lesson.action_kind || 'recommendation',
@@ -81,6 +84,7 @@ function recordLesson(slug, lesson) {
     failure_origin: lesson.failure_origin || null,
     impact: lesson.impact || 'advisory',
     frequency: typeof lesson.frequency === 'number' && lesson.frequency >= 0 ? lesson.frequency : 0,
+    ...(lesson.pinned === true ? { pinned: true } : {}),
   };
 
   fs.appendFileSync(file, JSON.stringify(enriched) + '\n', 'utf8');

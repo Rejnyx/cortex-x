@@ -181,6 +181,7 @@ try {
 // Sprint 1.6: user-data lives in $CORTEX_DATA_HOME (default ~/.cortex/), NOT in
 // the cortex-x source repo. Resolve precedence: env var → cortex-source.yaml →
 // legacy ~/cortex-x/projects/ fallback (pre-Sprint-1.6 installs).
+let libraryEntry = null; // { slug, path } — read again by the memory-health block below
 try {
   const os = require('os');
   let dataHome = process.env.CORTEX_DATA_HOME;
@@ -218,6 +219,7 @@ try {
     const dataRoot = path.dirname(projectsDir);
 
     if (fs.existsSync(entryPath)) {
+      libraryEntry = { slug, path: entryPath };
       ctx.push(`\ncortex-x library: entry exists (${slug}.md)`);
       ctx.push('  Claude: reference it for cross-project context when relevant');
     } else {
@@ -330,6 +332,53 @@ try {
   }
 } catch {
   // cortex-x not installed or unreachable — silently skip
+}
+
+// Memory health — auto-memory index size, broken links, stale project
+// memories, and a library entry that fell behind the repo. Silent when healthy.
+try {
+  const os = require('os');
+  const { execFileSync } = require('child_process');
+  const health = require('./_lib/memory-health.cjs');
+  const nowMs = Date.now();
+  // execFile, not a shell: no cmd.exe per call on Windows (and no git.bat
+  // picked up from the project dir). Short timeout — this is a status line.
+  const git = (args) => {
+    try {
+      return execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', timeout: 1500, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    } catch { return null; }
+  };
+
+  let memory = null;
+  try {
+    const configDir = path.resolve(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'));
+    // Claude Code keys auto-memory on the git repository, shared by every
+    // worktree and subdirectory; the main checkout is the parent of the common
+    // .git dir. Fall back to the worktree top, then cwd (outside git). One
+    // process answers both; outside a repo it fails and we stay on cwd.
+    const [commonDir, topLevel] = (git(['rev-parse', '--path-format=absolute', '--git-common-dir', '--show-toplevel']) || '').split(/\r?\n/);
+    const mainRoot = commonDir && path.basename(commonDir) === '.git' ? path.dirname(commonDir) : null;
+    const projectRoot = mainRoot || topLevel || ROOT;
+    const configured = health.configuredMemoryDir(projectRoot, configDir, os.homedir());
+    const memDir = configured ? configured.dir : health.autoMemoryDir([mainRoot, topLevel, ROOT], configDir);
+    memory = memDir ? health.inspectAutoMemory(memDir, nowMs) : null;
+  } catch { /* unreadable memory dir — still check the library below */ }
+
+  let library = null;
+  if (libraryEntry) {
+    const age = health.libraryAge(libraryEntry.path, nowMs);
+    let commitsSince = null;
+    // Only spend a git call when the age alone could trigger the warning.
+    if (age && age.ageDays >= health.LIBRARY_STALE_DAYS) {
+      const n = git(['rev-list', '--count', `--since=${age.sinceIso}`, 'HEAD', '--', '.']);
+      commitsSince = n !== null && /^\d+$/.test(n) ? Number(n) : null;
+    }
+    library = { slug: libraryEntry.slug, ageDays: age ? age.ageDays : null, commitsSince };
+  }
+  const lines = health.formatMemoryHealth({ memory, library });
+  if (lines.length) ctx.push('', ...lines);
+} catch {
+  // _lib missing on an older install — skip silently.
 }
 
 // Auto-orchestration: surface recent session budget if .budget.jsonl exists.

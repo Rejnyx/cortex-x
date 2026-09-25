@@ -61,6 +61,16 @@ describe('lessons: recordLesson', () => {
     assert.match(stored[0].ts, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
   });
 
+  test('persists pinned only as a literal true, and omits it otherwise', () => {
+    lessons.recordLesson(SLUG, { root_cause: 'SPEC', lesson_text: 'port is 5433', pinned: true });
+    lessons.recordLesson(SLUG, { root_cause: 'X', lesson_text: 'y', pinned: 'yes' });
+    lessons.recordLesson(SLUG, { root_cause: 'X', lesson_text: 'z' });
+    const stored = lessons.readAllLessons(SLUG);
+    assert.equal(stored[0].pinned, true);
+    assert.ok(!('pinned' in stored[1]));
+    assert.ok(!('pinned' in stored[2]));
+  });
+
   test('auto-fills action_kind to recommendation when missing', () => {
     lessons.recordLesson(SLUG, { root_cause: 'X', lesson_text: 'y' });
     const stored = lessons.readAllLessons(SLUG);

@@ -2,6 +2,28 @@
 
 All notable changes to cortex-x. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Memory health at session start** — new [`shared/hooks/_lib/memory-health.cjs`](./shared/hooks/_lib/memory-health.cjs), called from `session-start.cjs`. It reports:
+  - the Claude Code auto-memory index nearing the loader cut-off (25 KB / 200 lines);
+  - index links that point to missing files;
+  - memory files not linked from the index;
+  - project memories untouched for 120+ days;
+  - a cortex library entry that is 30+ days old with 10+ commits since, with a pointer to `prompts/cortex-sync.md`.
+
+  It only measures and reports, never rewrites, and prints nothing when memory is healthy. The memory folder is resolved the way Claude Code keys it: from the git repository, so worktrees and subdirectories share one folder. It honours `autoMemoryDirectory` and `CLAUDE_CONFIG_DIR`. Git runs through `execFile` and is called at most twice. Only the frontmatter head of each file is read, and file names are sanitised before they reach model context.
+- **`pinned: true`** — an operator-marked, never-degrade fact.
+  - `recordLesson` persists the flag.
+  - `memory-decay` `decayPass` never archives a pinned item on either path. Blockers are now also protected on the threshold path, and the archive fraction applies only to the unprotected pool.
+  - `lessons-exporter` always exports pinned lessons, first and regardless of score.
+  - Memory-health does not count pinned project memories as stale.
+
+### Fixed
+
+- `memory-decay-properties.test.cjs` passed `archiveFraction`, an option that doesn't exist, so two property tests ran at the default 5% instead of the intended fraction.
+
 ## [0.3.0] — 2026-05-14 — First public stable preview
 
 > **Chapter close: Tier 0 (Foundation) + Tier 1 (Verification + multi-agent) shipped, Tier 2 (Compound learners) essentially complete.** First version intended for stranger consumption — `0.3.0-pre` suffix dropped. `experimental: true` flag preserved in the Claude Code plugin manifest because three named sub-sprints remain deferred (2.2.1 multi-agent spawner, 2.3.1 mutation_score criterion kind, 3.X Anthropic Memory Tool). Plugin stability flag moved `closed-beta` → `public-preview`.

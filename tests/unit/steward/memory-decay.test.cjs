@@ -291,6 +291,37 @@ describe('Sprint 2.8.1 R2 hardening', () => {
   });
 });
 
+describe('pinned items', () => {
+  const now = new Date('2026-09-25T00:00:00Z');
+  const daysAgo = (n) => new Date(now.getTime() - n * 24 * 60 * 60 * 1000).toISOString();
+
+  test('fraction path never archives a pinned advisory, even when it scores lowest', () => {
+    const items = [];
+    for (let i = 0; i < 20; i += 1) items.push({ id: `a${i}`, ts: daysAgo(i), impact: 'advisory' });
+    items.push({ id: 'spec', ts: daysAgo(900), impact: 'advisory', pinned: true });
+    const result = decay.decayPass(items, { archiveBottomFraction: 0.5, now });
+    assert.ok(!result.archive.some((i) => i.id === 'spec'), 'pinned item was archived');
+    assert.ok(result.keep.some((i) => i.id === 'spec'));
+    assert.equal(result.archive.length, 10, 'archive quota still drawn from unpinned items');
+  });
+
+  test('threshold path keeps a pinned item below the threshold', () => {
+    const items = [
+      { id: 'spec', ts: daysAgo(900), impact: 'advisory', pinned: true },
+      { id: 'noise', ts: daysAgo(900), impact: 'advisory' },
+    ];
+    const result = decay.decayPass(items, { thresholdScore: 1.0, now });
+    assert.deepEqual(result.keep.map((i) => i.id), ['spec']);
+    assert.deepEqual(result.archive.map((i) => i.id), ['noise']);
+  });
+
+  test('only a literal true pins — truthy strings do not', () => {
+    const items = [{ id: 'x', ts: daysAgo(900), impact: 'advisory', pinned: 'yes' }];
+    const result = decay.decayPass(items, { thresholdScore: 1.0, now });
+    assert.equal(result.archive.length, 1);
+  });
+});
+
 describe('lessons schema extension (Sprint 2.8 R1 §10)', () => {
   const lessons = require('../../../bin/steward/_lib/lessons.cjs');
   const fs = require('node:fs');

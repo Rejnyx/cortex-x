@@ -84,7 +84,7 @@ describe('Sprint 2.9.7b — memory-decay scoring properties', () => {
         frequency: 20 - i,
       });
     }
-    const result = decay.decayPass(items, { archiveFraction: 0.1 });
+    const result = decay.decayPass(items, { archiveBottomFraction: 0.1 });
     assert.ok(typeof result === 'object');
     assert.ok(Array.isArray(result.keep));
     assert.ok(Array.isArray(result.archive));
@@ -112,7 +112,7 @@ describe('Sprint 2.9.7b — memory-decay scoring properties', () => {
         frequency: 100,
       })),
     ];
-    const result = decay.decayPass(items, { archiveFraction: 0.5 });
+    const result = decay.decayPass(items, { archiveBottomFraction: 0.5 });
     // Sprint 2.8 R1 acceptance: zero blocker lessons archived.
     const archivedBlockers = result.archive.filter((it) => it.impact === 'blocker');
     assert.equal(archivedBlockers.length, 0, 'blocker items must never be archived');

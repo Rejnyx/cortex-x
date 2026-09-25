@@ -121,9 +121,14 @@ function decayPass(items, opts = {}) {
     return { keep: [], archive: [], params };
   }
   const scored = scoreItems(items, { ...opts, params });
+  // Never archived on either path: blockers encode load-bearing failure
+  // knowledge (Sprint 2.8 R1), and `pinned: true` marks operator facts that
+  // must not degrade regardless of impact tier. Only a literal boolean pins.
+  const isProtected = (it) => it.impact === 'blocker' || it.pinned === true;
   if (typeof opts.thresholdScore === 'number') {
-    const keep = scored.filter((i) => i._score >= opts.thresholdScore);
-    const archive = scored.filter((i) => i._score < opts.thresholdScore);
+    const below = (i) => i._score < opts.thresholdScore && !isProtected(i);
+    const keep = scored.filter((i) => !below(i));
+    const archive = scored.filter(below);
     return { keep, archive, params };
   }
   const fraction = typeof opts.archiveBottomFraction === 'number'
@@ -137,11 +142,16 @@ function decayPass(items, opts = {}) {
   const minArchiveFloor = typeof opts.minArchiveFloor === 'number'
     ? Math.max(1, Math.floor(opts.minArchiveFloor))
     : 10;
+  // The fraction applies to the archivable pool: counting protected items in
+  // would let a store full of pinned facts archive every unpinned one at once.
+  const unprotected = scored.filter((it) => !isProtected(it));
+  const protectedItems = scored.filter(isProtected);
+  const pool = unprotected.length;
   let archiveCount;
-  if (items.length >= minArchiveFloor && fraction > 0) {
-    archiveCount = Math.max(1, Math.floor(items.length * fraction));
+  if (pool >= minArchiveFloor && fraction > 0) {
+    archiveCount = Math.max(1, Math.floor(pool * fraction));
   } else {
-    archiveCount = Math.floor(items.length * fraction);
+    archiveCount = Math.floor(pool * fraction);
   }
   if (archiveCount === 0) {
     return { keep: scored, archive: [], params };
@@ -152,12 +162,10 @@ function decayPass(items, opts = {}) {
   // surfaced the gap. Now: archive ONLY from the non-blocker pool. Blocker
   // lessons encode load-bearing failure-mode knowledge and must persist
   // (until hard-coded retention sweep, which is itself out of scope here).
-  const nonBlockers = scored.filter((it) => it.impact !== 'blocker');
-  const blockers = scored.filter((it) => it.impact === 'blocker');
-  const cappedArchiveCount = Math.min(archiveCount, nonBlockers.length);
-  const archive = nonBlockers.slice(nonBlockers.length - cappedArchiveCount);
-  const keptNonBlockers = nonBlockers.slice(0, nonBlockers.length - cappedArchiveCount);
-  const keep = [...blockers, ...keptNonBlockers].sort((a, b) => b._score - a._score);
+  const cappedArchiveCount = Math.min(archiveCount, unprotected.length);
+  const archive = unprotected.slice(unprotected.length - cappedArchiveCount);
+  const keptUnprotected = unprotected.slice(0, unprotected.length - cappedArchiveCount);
+  const keep = [...protectedItems, ...keptUnprotected].sort((a, b) => b._score - a._score);
   return { keep, archive, params };
 }
 
