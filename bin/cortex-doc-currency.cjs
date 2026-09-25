@@ -67,11 +67,27 @@ const NOUN_TO_KEY = Object.freeze({
   'standards': 'standards',
   'action_kinds': 'action_kinds',
   'action kinds': 'action_kinds',
-  'tests': 'tests_total',
+  // NOT bare 'tests'. The snapshot's `tests_total` counts test FILES
+  // (tests/**/*.test.cjs), while every prose claim of the form "N tests" in
+  // this repo means test CASES from `npm test` — two numbers an order of
+  // magnitude apart. Mapping them produced a whole class of confidently
+  // wrong HIGH findings ("3435 tests" -> "expected 165"), and `--apply`
+  // would have rewritten correct prose into false prose. Only the explicitly
+  // file-scoped phrasings map to this key.
+  'test files': 'tests_total',
+  'test file': 'tests_total',
   'capabilities': 'capabilities',
-  'profiles': 'profiles',
-  'skills': 'skills',
-  'agents': 'agents',
+  // NOT bare 'agents' / 'skills' / 'profiles'. Surveyed every occurrence in
+  // the linted corpus (CLAUDE.md + README.md + standards/**): all of them are
+  // *concurrency* or *ecosystem* counts, never inventory —
+  //   "3–5 agents"       = how many to fan out in a review pipeline
+  //   "1000 agents"      = the runtime's per-run cap
+  //   "3,984 skills"     = Snyk's ToxicSkills scan population
+  //   "50 skills"        = a context-budget illustration
+  //   "all 4 profiles"   = a policy allowance, not the profile count
+  // Comparing those against the repo's own file counts produced 14 confidently
+  // wrong HIGH findings. Authoritative inventory counts belong in cortex-doc-regen
+  // marker blocks, which are regenerated rather than linted.
   'CLIs': 'clis',
   'clis': 'clis',
   'shims': 'shims',
@@ -98,6 +114,14 @@ const NUMERIC_CLAIM = new RegExp(
 
 // Trailing-qualifier scan — looks BACK from the claim's start position.
 const QUALIFIER_RE = /\b(approximately|around|roughly|about|over|more\s+than|nearly|~)\s*$/i;
+
+// Negative context — the digit names a rule tier, not a quantity.
+// Matches the run-up of "Rule 1 standards" and "Rule 2/3 standards".
+const RULE_TIER_PREFIX_RE = /\bRule\s+[\d./]*$/i;
+
+// Negative context — the digit is the tail of a dotted section number, as in
+// "### 5.1 Standards by tier" or "### 9.2 Detectors".
+const SECTION_NUMBER_PREFIX_RE = /\d\.$/;
 
 // Allowlist comment markers (HTML-comment form, ESLint-aligned).
 const ALLOWLIST_NEXT_LINE = /<!--\s*doc-currency-disable-next-line\s*-->/;
@@ -134,12 +158,36 @@ function parseFrontmatter(content) {
   const block = text.slice(3, closing);
   const data = {};
   const lines = block.split(/\r?\n/);
+
+  // Block-scalar tracking. Without this, `purpose: |` followed by indented
+  // prose parses every continuation line as its own key — so a doc whose
+  // description happens to contain a line like "expires: 2027-01-01" would
+  // silently gain that key and switch off its own expiry enforcement. That is
+  // a fail-open on the ingest boundary of the gate itself, which is the one
+  // place fail-open is not acceptable. `blockIndent` is the indentation of the
+  // key that opened the scalar; anything more-indented belongs to its value.
+  let blockIndent = null;
+
   for (const raw of lines) {
     const line = raw.replace(/\r$/, '');
     if (line.trim().length === 0 || line.trim().startsWith('#')) continue;
+
+    const indent = line.length - line.trimStart().length;
+    if (blockIndent !== null) {
+      if (indent > blockIndent) continue;   // still inside the scalar's value
+      blockIndent = null;                    // dedented back out — resume parsing
+    }
+
     const idx = line.indexOf(':');
     if (idx === -1) continue;
     const key = line.slice(0, idx).trim();
+
+    // `key: |`, `key: >`, and their chomping variants (|- |+ >- >+) open a
+    // block scalar whose value is the indented lines that follow.
+    if (/^[|>][-+]?$/.test(line.slice(idx + 1).trim())) {
+      blockIndent = indent;
+      continue;
+    }
     let val = line.slice(idx + 1).trim();
     // Strip trailing comments.
     const hashIdx = val.indexOf(' #');
@@ -417,6 +465,19 @@ function detectClaims(content) {
     const lineStart = content.lastIndexOf('\n', start - 1) + 1;
     const scanStart = Math.max(lineStart, start - 32);
     const preceding = content.slice(scanStart, start);
+
+    // Dotted section numbers: "### 5.1 Standards by tier", "### 9.2 Detectors".
+    // The regex sees the fractional part as the quantity and the heading text
+    // as the noun. Any digit run directly preceded by `<digit>.` is part of a
+    // numbering scheme, never a count.
+    if (SECTION_NUMBER_PREFIX_RE.test(preceding)) continue;
+
+    // "Rule 1 standards" / "Rule 2/3 standards" name a TIER, not a count —
+    // the digit belongs to the rule number, and the noun just follows it.
+    // Without this guard the tier hierarchy (the most-cited concept in these
+    // docs) reads as a stale inventory claim on every mention.
+    if (RULE_TIER_PREFIX_RE.test(preceding)) continue;
+
     const qmatch = preceding.match(QUALIFIER_RE);
     // Sprint 2.46.2 R2 fix HIGH (edge-case-hunter): when only a trailing `+`
     // is present (no preceding "over"/"about"/"~"/etc.), leave qualifier=null

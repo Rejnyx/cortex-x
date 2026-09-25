@@ -6,6 +6,12 @@
 // Claude's context via hookSpecificOutput.additionalContext. NEVER spawns
 // agents silently; NEVER blocks the turn. Fail-open on any error.
 //
+// Second responsibility (compaction recovery): PostCompact cannot inject
+// context, so post-compact.cjs leaves `.claude/compact-recovery-pending.json`
+// and this hook re-injects `.claude/compact-state.md` on the next turn, then
+// consumes the marker. That runs INDEPENDENTLY of the orchestration trigger —
+// recovery must fire on any prompt, not only on implementation-shaped ones.
+//
 // Grounded in:
 //   standards/auto-orchestration.md (3-fronta rule, 2-minute rule)
 //   Anthropic multi-agent research blog (2024)
@@ -53,6 +59,53 @@ const SKIP_PATTERNS = [
   /\b(quick|rychle|skip\s+research|no\s+research|fix\s+typo|typo|rename|reformat|format|prettier|lint|add\s+a?\s*comment)\b/i,
   /^\s*(quick|rychle|skip|oprav\s+typo)\b/i,
 ];
+
+// --- compaction recovery (paired with post-compact.cjs) --------------------
+
+const COMPACT_MARKER = path.join(process.cwd(), '.claude', 'compact-recovery-pending.json');
+const COMPACT_STATE = path.join(process.cwd(), '.claude', 'compact-state.md');
+const COMPACT_MAX_CHARS = 4000;
+
+// Reads the saved pre-compact state if PostCompact flagged one, then deletes
+// the marker so the block is injected exactly once. Returns null when there
+// is nothing pending. Fail-open: any error yields null.
+function consumeCompactRecovery() {
+  if (process.env.CORTEX_COMPACT_RECOVERY_DISABLED === '1') return null;
+
+  try {
+    if (!fs.existsSync(COMPACT_MARKER)) return null;
+  } catch (_) {
+    return null;
+  }
+
+  let state = null;
+  try {
+    state = fs.readFileSync(COMPACT_STATE, 'utf8');
+  } catch (_) {
+    state = null;
+  }
+
+  // Consume the marker even when the state file is gone — a marker that
+  // cannot be satisfied must not survive to retry on every subsequent turn.
+  try { fs.unlinkSync(COMPACT_MARKER); } catch (_) {}
+
+  if (!state || !state.trim()) return null;
+
+  const truncated = state.length > COMPACT_MAX_CHARS
+    ? `${state.slice(0, COMPACT_MAX_CHARS)}\n\n[truncated — full state in .claude/compact-state.md]`
+    : state;
+
+  return [
+    '# cortex-x compaction recovery',
+    '',
+    'The context was compacted since the last turn. This is the sprint state',
+    'captured by the PreCompact hook immediately before that happened. Treat it',
+    'as ground truth about where the work stood, and re-read the files it names',
+    'before acting on them — it reflects the state at compaction time, not now.',
+    '',
+    truncated,
+  ].join('\n');
+}
 
 function resolveCortexRoot() {
   const envHome = validateCortexHome(process.env.CORTEX_HOME);
@@ -183,12 +236,30 @@ function buildGuidance(caches, budget, capUsd, budgetDisabled) {
   ].join('\n');
 }
 
+function emitContext(blocks) {
+  const merged = blocks.filter(Boolean).join('\n\n---\n\n');
+  if (!merged) {
+    process.stdout.write(JSON.stringify({ continue: true }));
+    return;
+  }
+  process.stdout.write(JSON.stringify({
+    continue: true,
+    hookSpecificOutput: {
+      hookEventName: 'UserPromptSubmit',
+      additionalContext: merged,
+    },
+  }));
+}
+
 function main() {
   const input = readInput();
   const prompt = (input && (input.prompt || input.user_prompt)) || '';
 
+  // Recovery is unconditional — it must fire on any prompt after a compaction.
+  const recovery = consumeCompactRecovery();
+
   if (!shouldTrigger(prompt)) {
-    process.stdout.write(JSON.stringify({ continue: true }));
+    emitContext([recovery]);
     return;
   }
 
@@ -202,13 +273,7 @@ function main() {
 
   const guidance = buildGuidance(caches, budget, capUsd, budgetDisabled);
 
-  process.stdout.write(JSON.stringify({
-    continue: true,
-    hookSpecificOutput: {
-      hookEventName: 'UserPromptSubmit',
-      additionalContext: guidance,
-    },
-  }));
+  emitContext([recovery, guidance]);
 }
 
 try {

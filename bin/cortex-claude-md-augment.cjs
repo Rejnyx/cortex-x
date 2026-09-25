@@ -56,7 +56,10 @@ const CLAUDE_MD_PATH = path.join(HOME, '.claude', 'CLAUDE.md');
 // JS-script orchestration of subagents (shared/workflows/r2-review.js + audit.js),
 // fan-out threshold (≥6 agents or multi-stage), hook composition semantics,
 // 1-level nesting limit.
-const BLOCK_VERSION = '6';
+// v7 (2026-09-25): Claude Code v2.1.233+ no longer offers TaskCreate/TodoWrite
+// on Opus 4.8 / Sonnet 5 / Fable 5 and newer; the block now says where the list
+// lives instead and names CLAUDE_CODE_ENABLE_TODO_TOOLS=1.
+const BLOCK_VERSION = '7';
 const CORTEX_BLOCK_START = '<!-- BEGIN cortex-x discipline (v' + BLOCK_VERSION + ') — managed by cortex-claude-md-augment -->';
 const CORTEX_BLOCK_END = '<!-- END cortex-x discipline -->';
 // Match any version of the block (for removal + version-drift detection).
@@ -78,7 +81,7 @@ You are working in an environment where cortex-x is installed (~/.claude/shared/
 
 ### Execution discipline
 
-**Track multi-step work with the task list.** Any task with 3+ distinct steps gets a task list at the start. Use the **Task tools** (\`TaskCreate\` / \`TaskUpdate\` / \`TaskList\` — the default since Claude Code v2.1.142); older builds expose \`TodoWrite\` instead (\`CLAUDE_CODE_ENABLE_TASKS=0\` re-enables it). Exactly ONE task \`in_progress\` at a time. Mark \`completed\` IMMEDIATELY when finished — never batch completions. New discoveries during execution → add as new tasks. This is load-bearing for hackathons + sprints — without it long tasks drift.
+**Track multi-step work with a task list.** Any task with 3+ distinct steps gets a task list at the start. Since Claude Code v2.1.233 the task tools (\`TaskCreate\` / \`TodoWrite\`) are not offered on Opus 4.8, Sonnet 5, Fable 5 and newer models — keep the list as a short checklist in your reply (or the PROGRESS.md section for sprint work), or set \`CLAUDE_CODE_ENABLE_TODO_TOOLS=1\` to bring the tools back. Exactly ONE task \`in_progress\` at a time. Mark \`completed\` IMMEDIATELY when finished — never batch completions. New discoveries during execution → add as new tasks. This is load-bearing for hackathons + sprints — without it long tasks drift.
 
 **Think before code.** State the plan in 1-2 sentences before the first edit. State assumptions you're making. If the plan is wrong, the operator catches it in seconds; if you start coding, the cost is rework.
 

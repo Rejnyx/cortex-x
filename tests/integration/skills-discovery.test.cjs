@@ -34,14 +34,14 @@ describe('cortex-skill-validate against every shipped skill', () => {
   // outside this list = test failure. Existing items must be cleared by the
   // dates below or this guard fails (forces the debt to move). Strict ratchet
   // pattern — same as code-coverage thresholds in npm projects.
-  const QUARANTINE = [
-    {
-      skill: 'designer',
-      ruleId: 'SPEC_BODY_TOO_LONG',
-      reason: 'Designer SKILL.md is 509 lines (spec cap 500). Refactor planned: split into references/ like ux-copywriter and ralph-loop did.',
-      mustFixBy: '2026-06-30',
-    },
-  ];
+  // Empty by design. Entries here are time-boxed exemptions: an A/fail finding
+  // that is knowingly deferred, with an owner-visible expiry. Past mustFixBy the
+  // suite fails loudly, and once the finding stops reproducing the suite demands
+  // the entry be deleted — so quarantine can neither rot silently nor linger.
+  //
+  // Last resident: designer/SPEC_BODY_TOO_LONG (expired 2026-06-30, cleared
+  // 2026-08-10 by moving award mode into designer/references/award-mode.md).
+  const QUARANTINE = [];
 
   const result = spawnSync(
     process.execPath,

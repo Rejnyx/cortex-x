@@ -268,7 +268,12 @@ function exportLessons(opts = {}) {
 
   let totalExported = 0;
   for (const [kind, items] of groups) {
-    const filtered = items.filter((it) => it._score >= minScore).slice(0, topK);
+    // Pinned lessons skip the score floor and lead the top-K: they are the
+    // operator's never-degrade facts, however old or rarely recalled.
+    const filtered = [
+      ...items.filter((it) => it.pinned === true),
+      ...items.filter((it) => it.pinned !== true && it._score >= minScore),
+    ].slice(0, topK);
     if (filtered.length === 0) continue;
     const content = buildTopicFile(kind, filtered, { now });
     const fname = `lessons-${sanitizeKindForFilename(kind)}.md`;

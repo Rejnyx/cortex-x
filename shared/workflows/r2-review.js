@@ -1,57 +1,14 @@
-// SPDX-License-Identifier: Apache-2.0
-// cortex-x
-
-/**
- * r2-review.js — cortex R2 6-agent review pipeline + Pass-2 confidence validation.
- *
- * Dynamic Workflow form of the canonical R2 review pipeline. Trigger on
- * non-trivial diffs (>=3 files, public API change, security-adjacent,
- * agentic code paths). The 6 review agents fan out in parallel (Phase 1),
- * then every raw finding is re-derived by a skeptic agent (Phase 2) that
- * scores confidence 0-100. Findings below threshold are dropped; survivors
- * are deduped by {file,line} with multi-agent attribution merged.
- *
- * Usage (from the Workflow runtime):
- *   import workflow from './r2-review.js';
- *   const result = await runWorkflow(workflow, {
- *     diff,                // string — unified diff text
- *     contextFiles,        // string[] — file paths to share with every agent
- *     confidenceThreshold, // number 0-100 — default 75
- *   });
- *
- * Args:
- *   diff                 — unified diff string (required)
- *   contextFiles         — array of absolute paths attached to every agent prompt
- *   confidenceThreshold  — Pass-2 cutoff (default 75); findings below dropped
- *
- * Returns:
- *   {
- *     raw_findings:       Finding[],        // every Pass-1 finding
- *     validated_findings: Finding[],        // survived Pass-2 + threshold, deduped
- *     by_severity:        { HIGH:[], MEDIUM:[], LOW:[] },
- *     by_agent:           { [agent]: Finding[] },
- *     summary_text:       string,           // human-readable rollup
- *   }
- *
- * SSOT for the 6-agent roster: shared/hooks/_lib/review-agents.cjs.
- * Keep this list mirrored — a drift test asserts both sides match.
- */
-
-// Mirrored from shared/hooks/_lib/review-agents.cjs (REVIEW_AGENTS).
-// SSOT lives in the .cjs file; this is a verbatim copy because Workflow
-// runtime parses meta as a pure literal (no imports allowed at top of file
-// in some runtime profiles). A contract test guards against drift.
-const REVIEW_AGENTS = [
-  'blind-hunter',
-  'edge-case-hunter',
-  'acceptance-auditor',
-  'security-auditor',
-  'correctness-auditor',
-  'ssot-enforcer',
-];
-
-// PURE LITERAL — required by the Workflow runtime parser. Do NOT compute,
-// do NOT spread, do NOT interpolate. The runtime walks the AST.
+// PURE LITERAL — required by the Workflow runtime parser, and it MUST be the
+// FIRST statement in the file. Do NOT compute, do NOT spread, do NOT
+// interpolate; the runtime walks the AST before executing anything.
+//
+// 2026-08-10: this block used to sit ~50 lines down, below the REVIEW_AGENTS
+// const and the file header comment. The runtime rejects that outright
+// ("`export const meta` must be the FIRST statement"), which means this
+// workflow had never actually been dispatched despite being documented as the
+// canonical R2 pipeline. The roster drift test passed the whole time because
+// it only compared the agent list against the .cjs SSOT — it never loaded the
+// script through the runtime. See standards/workflows.md § Runtime contract.
 export const meta = {
   name: "r2-review",
   description: "cortex R2 6-agent review pipeline plus Pass-2 confidence validation runs blind/edge/acceptance/security/correctness/ssot in parallel then filters by confidence",
@@ -60,6 +17,50 @@ export const meta = {
     { title: "Confidence", detail: "Pass-2 re-derivation plus confidence filter" },
   ],
 };
+
+// SPDX-License-Identifier: Apache-2.0
+// cortex-x
+//
+// r2-review.js — cortex R2 6-agent review pipeline + Pass-2 confidence validation.
+//
+// Dynamic Workflow form of the canonical R2 review pipeline. Trigger on
+// non-trivial diffs (>=3 files, public API change, security-adjacent,
+// agentic code paths). The 6 review agents fan out in parallel (Phase 1),
+// then every raw finding is re-derived by a skeptic agent (Phase 2) that
+// scores confidence 0-100. Findings below threshold are dropped; survivors
+// are deduped by {file,line} with multi-agent attribution merged.
+//
+// Invocation — the runtime supplies `agent` / `parallel` / `pipeline` / `log`
+// as globals and the caller's `args` object:
+//   Workflow({ scriptPath: 'shared/workflows/r2-review.js', args: {
+//     diff,                // string — unified diff text (required)
+//     contextFiles,        // string[] — text blocks shared with every agent
+//     confidenceThreshold, // number 0-100 — Pass-2 cutoff, default 75
+//   }})
+//
+// Returns:
+//   {
+//     raw_findings:       Finding[],        // every Pass-1 finding
+//     validated_findings: Finding[],        // survived Pass-2 + threshold, deduped
+//     by_severity:        { HIGH:[], MEDIUM:[], LOW:[] },
+//     by_agent:           { [agent]: Finding[] },
+//     summary_text:       string,           // human-readable rollup
+//   }
+//
+// SSOT for the 6-agent roster: shared/hooks/_lib/review-agents.cjs.
+// Keep this list mirrored — a drift test asserts both sides match.
+
+// Mirrored from shared/hooks/_lib/review-agents.cjs (REVIEW_AGENTS).
+// SSOT lives in the .cjs file; this is a verbatim copy because the workflow
+// runtime forbids imports ahead of meta. A contract test guards against drift.
+const REVIEW_AGENTS = [
+  'blind-hunter',
+  'edge-case-hunter',
+  'acceptance-auditor',
+  'security-auditor',
+  'correctness-auditor',
+  'ssot-enforcer',
+];
 
 // JSON Schema for Phase 1 agent returns. Zod-at-boundaries discipline
 // (R1.1) — every LLM return is schema-validated; failures surface as
@@ -146,7 +147,6 @@ function buildSkepticPrompt(finding) {
     `You are a skeptic. Another reviewer flagged the following:`,
     ``,
     `Agent:      ${finding.agent}`,
-    `Severity:   ${finding.severity}`,
     `File:       ${finding.file}`,
     `Line:       ${finding.line}`,
     `Original confidence: ${finding.confidence}`,
@@ -199,115 +199,139 @@ function normalizeThreshold(raw) {
   return Math.max(0, Math.min(100, Math.floor(raw)));
 }
 
-export default async function r2Review({ agent, parallel, pipeline }, args) {
-  const diff = String(args?.diff ?? '');
-  const contextFiles = Array.isArray(args?.contextFiles) ? args.contextFiles : [];
-  const confidenceThreshold = normalizeThreshold(args?.confidenceThreshold);
+// ─── script body ─────────────────────────────────────────────────────────
+// The runtime executes from here with `agent` / `parallel` / `pipeline` /
+// `log` / `args` in scope. There is no default export — a default-exported
+// function is never called by this runtime.
 
-  // ─── Phase 1: Review ─────────────────────────────────────────────────
-  // 6 cortex review agents in parallel. Each returns a FINDINGS_SCHEMA
-  // object. Failed agents (rejection / schema violation) surface as null
-  // and are filtered out — review proceeds on the surviving lenses.
-  const phase1 = await parallel(
-    REVIEW_AGENTS.map((name) => () =>
-      agent(buildReviewPrompt(name, diff, contextFiles), {
-        agentType: name,
-        label: name,
-        phase: 'Review',
-        schema: FINDINGS_SCHEMA,
-      }),
-    ),
-  );
+const diff = String(args?.diff ?? '');
+const contextFiles = Array.isArray(args?.contextFiles) ? args.contextFiles : [];
+const confidenceThreshold = normalizeThreshold(args?.confidenceThreshold);
 
-  // HIGH-1 (Sprint 2.44 R2): capture agent name BEFORE filter. After
-  // filter(Boolean), array index no longer aligns with REVIEW_AGENTS
-  // roster — any null in the middle silently shifts every subsequent
-  // attribution. Pair (result, name) before filtering to preserve the
-  // 1:1 mapping.
-  const rawFindings = phase1
-    .map((result, idx) => ({ result, name: REVIEW_AGENTS[idx] }))
-    .filter(({ result }) => result)
-    .flatMap(({ result, name }) => {
-      const findings = Array.isArray(result?.findings) ? result.findings : [];
-      return findings.map((f) => ({ ...f, agent: name }));
-    })
-    .slice(0, MAX_RAW_FINDINGS); // MEDIUM-18: bound pipeline cost
-
-  // ─── Phase 2: Confidence ─────────────────────────────────────────────
-  // Pipeline over findings — each gets an independent skeptic re-derivation.
-  // pipeline is used (not parallel) so the runtime can stream + checkpoint
-  // per-item; cost scales linearly but is bounded by MAX_RAW_FINDINGS.
-  const skepticResults = await pipeline(
-    rawFindings,
-    (finding) =>
-      agent(buildSkepticPrompt(finding), {
-        agentType: 'skeptic',
-        label: `skeptic:${finding.agent}:${finding.file}:${finding.line}`,
-        phase: 'Confidence',
-        schema: SKEPTIC_SCHEMA,
-      }),
-  );
-
-  // HIGH-5 (Sprint 2.44 R2): length-equality assertion. pipeline contract
-  // says order is preserved (failed items become null), but assert
-  // explicitly so any future contract drift surfaces as a clear error
-  // rather than silent verdict-to-finding mis-attribution.
-  if (skepticResults.length !== rawFindings.length) {
-    throw new Error(
-      `r2-review: skepticResults length (${skepticResults.length}) ` +
-        `!= rawFindings length (${rawFindings.length}) — pipeline contract violated`,
-    );
-  }
-
-  // Rescore + threshold filter. Skeptic verdict overrides the original
-  // confidence — that's the whole point of Pass-2.
-  const rescored = rawFindings
-    .map((f, i) => {
-      const verdict = skepticResults[i];
-      if (!verdict) return null;
-      return {
-        ...f,
-        confidence: verdict.confidence,
-        verdict: verdict.verdict,
-        rationale: verdict.rationale,
-      };
-    })
-    .filter((f) => f && f.confidence >= confidenceThreshold && f.verdict !== 'rejected');
-
-  // Dedupe by {file,line} — merge multi-agent hits into one entry.
-  const groups = new Map();
-  for (const f of rescored) {
-    const key = dedupeKey(f);
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(f);
-  }
-  const validatedFindings = [...groups.values()].map(mergeFindings);
-
-  // Buckets for the caller.
-  const bySeverity = { HIGH: [], MEDIUM: [], LOW: [] };
-  for (const f of validatedFindings) {
-    if (bySeverity[f.severity]) bySeverity[f.severity].push(f);
-  }
-  const byAgent = {};
-  for (const a of REVIEW_AGENTS) byAgent[a] = [];
-  for (const f of validatedFindings) {
-    for (const a of f.agents) {
-      if (!byAgent[a]) byAgent[a] = [];
-      byAgent[a].push(f);
-    }
-  }
-
-  const summaryText = [
-    `R2 review complete. ${rawFindings.length} raw -> ${validatedFindings.length} validated (>=${confidenceThreshold}%).`,
-    `HIGH ${bySeverity.HIGH.length} | MEDIUM ${bySeverity.MEDIUM.length} | LOW ${bySeverity.LOW.length}.`,
-    `Agents reporting: ${Object.entries(byAgent).filter(([, v]) => v.length).map(([k, v]) => `${k}(${v.length})`).join(', ') || 'none'}.`,
-  ].join(' ');
-
-  return {
-    raw_findings: rawFindings,
-    validated_findings: validatedFindings,
-    by_severity: bySeverity,
-    by_agent: byAgent,
-    summary_text: summaryText,
-  };
+// No silent caps: say so when the diff is being truncated, rather than
+// letting reviewers score half a change set and report it as complete.
+if (diff.length > MAX_DIFF_CHARS) {
+  log(`diff is ${diff.length} chars — truncating to ${MAX_DIFF_CHARS}. Split the review to cover the remainder.`);
 }
+
+// ─── Phase 1: Review ─────────────────────────────────────────────────
+// 6 cortex review agents in parallel. Each returns a FINDINGS_SCHEMA
+// object. Failed agents (rejection / schema violation) surface as null
+// and are filtered out — review proceeds on the surviving lenses.
+const phase1 = await parallel(
+  REVIEW_AGENTS.map((name) => () =>
+    agent(buildReviewPrompt(name, diff, contextFiles), {
+      agentType: name,
+      label: name,
+      phase: 'Review',
+      schema: FINDINGS_SCHEMA,
+    }),
+  ),
+);
+
+const deadAgents = REVIEW_AGENTS.filter((_, i) => !phase1[i]);
+if (deadAgents.length) {
+  log(`lenses that returned nothing: ${deadAgents.join(', ')} — coverage is partial.`);
+}
+
+// HIGH-1 (Sprint 2.44 R2): capture agent name BEFORE filter. After
+// filter(Boolean), array index no longer aligns with REVIEW_AGENTS
+// roster — any null in the middle silently shifts every subsequent
+// attribution. Pair (result, name) before filtering to preserve the
+// 1:1 mapping.
+const allFindings = phase1
+  .map((result, idx) => ({ result, name: REVIEW_AGENTS[idx] }))
+  .filter(({ result }) => result)
+  .flatMap(({ result, name }) => {
+    const findings = Array.isArray(result?.findings) ? result.findings : [];
+    return findings.map((f) => ({ ...f, agent: name }));
+  });
+
+const rawFindings = allFindings.slice(0, MAX_RAW_FINDINGS); // MEDIUM-18: bound pipeline cost
+if (allFindings.length > MAX_RAW_FINDINGS) {
+  log(`${allFindings.length} raw findings exceeded the ${MAX_RAW_FINDINGS} cap — ${allFindings.length - MAX_RAW_FINDINGS} dropped before Pass-2.`);
+}
+
+// ─── Phase 2: Confidence ─────────────────────────────────────────────
+// Pipeline over findings — each gets an independent skeptic re-derivation.
+// pipeline is used (not parallel) so the runtime can stream + checkpoint
+// per-item; cost scales linearly but is bounded by MAX_RAW_FINDINGS.
+//
+// No agentType here on purpose. This used to pass agentType:'skeptic',
+// which is not a registered agent — the Pass-2 stage could never resolve.
+// The default workflow subagent is the right host for an adversarial
+// re-derivation anyway: it carries no reviewer-specific bias.
+const skepticResults = await pipeline(
+  rawFindings,
+  (finding) =>
+    agent(buildSkepticPrompt(finding), {
+      label: `skeptic:${finding.agent}:${finding.file}:${finding.line}`,
+      phase: 'Confidence',
+      schema: SKEPTIC_SCHEMA,
+    }),
+);
+
+// HIGH-5 (Sprint 2.44 R2): length-equality assertion. pipeline contract
+// says order is preserved (failed items become null), but assert
+// explicitly so any future contract drift surfaces as a clear error
+// rather than silent verdict-to-finding mis-attribution.
+if (skepticResults.length !== rawFindings.length) {
+  throw new Error(
+    `r2-review: skepticResults length (${skepticResults.length}) ` +
+      `!= rawFindings length (${rawFindings.length}) — pipeline contract violated`,
+  );
+}
+
+// Rescore + threshold filter. Skeptic verdict overrides the original
+// confidence — that's the whole point of Pass-2.
+const rescored = rawFindings
+  .map((f, i) => {
+    const verdict = skepticResults[i];
+    if (!verdict) return null;
+    return {
+      ...f,
+      confidence: verdict.confidence,
+      verdict: verdict.verdict,
+      rationale: verdict.rationale,
+    };
+  })
+  .filter((f) => f && f.confidence >= confidenceThreshold && f.verdict !== 'rejected');
+
+// Dedupe by {file,line} — merge multi-agent hits into one entry.
+const groups = new Map();
+for (const f of rescored) {
+  const key = dedupeKey(f);
+  if (!groups.has(key)) groups.set(key, []);
+  groups.get(key).push(f);
+}
+const validatedFindings = [...groups.values()].map(mergeFindings);
+
+// Buckets for the caller.
+const bySeverity = { HIGH: [], MEDIUM: [], LOW: [] };
+for (const f of validatedFindings) {
+  if (bySeverity[f.severity]) bySeverity[f.severity].push(f);
+}
+const byAgent = {};
+for (const a of REVIEW_AGENTS) byAgent[a] = [];
+for (const f of validatedFindings) {
+  for (const a of f.agents) {
+    if (!byAgent[a]) byAgent[a] = [];
+    byAgent[a].push(f);
+  }
+}
+
+const summaryText = [
+  `R2 review complete. ${rawFindings.length} raw -> ${validatedFindings.length} validated (>=${confidenceThreshold}%).`,
+  `HIGH ${bySeverity.HIGH.length} | MEDIUM ${bySeverity.MEDIUM.length} | LOW ${bySeverity.LOW.length}.`,
+  `Agents reporting: ${Object.entries(byAgent).filter(([, v]) => v.length).map(([k, v]) => `${k}(${v.length})`).join(', ') || 'none'}.`,
+].join(' ');
+
+log(summaryText);
+
+return {
+  raw_findings: rawFindings,
+  validated_findings: validatedFindings,
+  by_severity: bySeverity,
+  by_agent: byAgent,
+  summary_text: summaryText,
+};

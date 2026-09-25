@@ -108,6 +108,24 @@ describe('Sprint 2.8.1 — exportLessons integration', () => {
     assert.match(idx, /lessons-pattern_transfer\.md/);
   });
 
+  test('a pinned lesson is exported despite a near-zero score, ahead of fresher ones', () => {
+    const dh = tmpDataHome('export-pinned');
+    const md = tmpMemoryDir('export-pinned');
+    seedLessons(dh, 'cortex-x', [
+      { action_kind: 'recommendation', root_cause: 'FRESH', impact: 'warning', lesson_text: 'fresh', frequency: 0, ts: '2026-05-12T00:00:00Z' },
+      { action_kind: 'recommendation', root_cause: 'SPEC', impact: 'advisory', lesson_text: 'db port is 5433', frequency: 0, ts: '2024-01-01T00:00:00Z', pinned: true },
+      { action_kind: 'recommendation', root_cause: 'OLD', impact: 'advisory', lesson_text: 'ancient noise', frequency: 0, ts: '2024-01-01T00:00:00Z' },
+    ]);
+    const result = exporter.exportLessons({
+      slug: 'cortex-x', memoryDir: md, dataHome: dh, allowOutsideHome: true, now: new Date('2026-05-13T12:00:00Z'),
+    });
+    assert.equal(result.lessons_exported, 2);
+    const topic = fs.readFileSync(path.join(md, 'lessons-recommendation.md'), 'utf8');
+    assert.match(topic, /## Lesson 1 — SPEC/);
+    assert.match(topic, /## Lesson 2 — FRESH/);
+    assert.doesNotMatch(topic, /ancient noise/);
+  });
+
   test('skips below-minScore entries', () => {
     const dh = tmpDataHome('export-min-score');
     const md = tmpMemoryDir('export-min-score');
